@@ -1,0 +1,19 @@
+# Never commit vendor firmware or large build artifacts
+*.img
+*.img.stock
+*.tar
+*.ext4
+*.zst
+*.raw
+*.raw.gz
+sha2-256sums
+update.tar
+rootfs*
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
