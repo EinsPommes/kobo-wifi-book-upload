@@ -1,0 +1,102 @@
+name: Build patched update.tar
+
+# Manually triggered. You supply a URL to your OWN stock update.tar; the runner
+# patches the rootfs (adds the boot hook via scripts/inject.sh), rebuilds the
+# checksum list and repacks update.tar. The vendor firmware is never stored in
+# this repo; it exists only transiently on the ephemeral runner.
+#
+# WARNING: On a PUBLIC repository, the resulting artifact is downloadable by
+# anyone. The patched update.tar contains vendor firmware. For non-public
+# output, run this in a PRIVATE repository. Retention is kept short (1 day).
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_tar_url:
+        description: "Direct download URL to your STOCK update.tar"
+        required: true
+        type: string
+      zstd_level:
+        description: "zstd level for rootfs (1-19; no --long, so <=19)"
+        required: false
+        default: "19"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout recipe
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y e2fsprogs zstd
+
+      - name: Download stock update.tar
+        env:
+          URL: ${{ inputs.update_tar_url }}   # via env to avoid shell injection
+        run: |
+          set -euo pipefail
+          mkdir -p work/pkg
+          curl -fL --retry 3 "$URL" -o work/stock-update.tar
+          ls -l work/stock-update.tar
+
+      - name: Extract package
+        run: |
+          set -euo pipefail
+          tar -C work/pkg -xf work/stock-update.tar
+          test -f work/pkg/rootfs.img || { echo "no rootfs.img in update.tar"; exit 1; }
+
+      - name: Patch rootfs
+        env:
+          ZL: ${{ inputs.zstd_level }}
+        run: |
+          set -euo pipefail
+          case "$ZL" in ''|*[!0-9]*) ZL=19;; esac
+          [ "$ZL" -gt 19 ] && ZL=19
+          cd work/pkg
+          zstd -d -f rootfs.img -o rootfs.ext4
+          bash "$GITHUB_WORKSPACE/scripts/inject.sh" rootfs.ext4
+          zstd -T0 "-$ZL" -f rootfs.ext4 -o rootfs.img   # no --long: plain unzstd on device
+          rm -f rootfs.ext4
+
+      - name: Rebuild checksum list
+        run: |
+          set -euo pipefail
+          cd work/pkg
+          new=$(sha256sum rootfs.img | awk '{print $1}')
+          zstd -dc sha2-256sums > sums.txt
+          awk -v n="$new" '{ if ($2=="rootfs.img") print n"\t"$2; else print }' sums.txt > sums.new
+          zstd -19 -f sums.new -o sha2-256sums
+          rm -f sums.txt sums.new
+          echo "new rootfs.img sha256: $new"
+
+      - name: Repack update.tar
+        run: |
+          set -euo pipefail
+          cd work/pkg
+          members=$(find . -maxdepth 1 -mindepth 1 -printf '%P\n' | sort)
+          # shellcheck disable=SC2086
+          tar -cf "$GITHUB_WORKSPACE/work/update.tar" $members
+          ls -l "$GITHUB_WORKSPACE/work/update.tar"
+
+      - name: Warn in summary
+        run: |
+          {
+            echo "## Patched update.tar built"
+            echo ""
+            echo "- Copy it to \`<reader-drive>/.kobo/update.tar\`, plus \`.custom/\` on the drive root."
+            echo "- **This artifact contains vendor firmware.** On a public repo it is"
+            echo "  publicly downloadable — use a private repo for non-public output."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload patched update.tar
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-update-tar
+          path: work/update.tar
+          retention-days: 1
+          if-no-files-found: error

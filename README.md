@@ -57,6 +57,19 @@ without mounting (uses `debugfs`, no root needed). Then recompress the image
 and rebuild your update package's checksum file. (Only the rootfs changes;
 kernel/U-Boot/TEE stay untouched, so their signatures remain valid.)
 
+#### Build it in the cloud (optional)
+
+A GitHub Actions workflow (`.github/workflows/build.yml`) can do the rootfs
+patch and repack for you. Trigger it manually (Actions → *Build patched
+update.tar* → *Run workflow*) and give it a direct download URL to your **own
+stock `update.tar`**. The runner patches it and uploads the patched
+`update.tar` as a build artifact. Vendor firmware is never stored in the repo —
+it only lives on the ephemeral runner.
+
+> **Caveat:** on a *public* repository, build artifacts are downloadable by
+> anyone, and the patched `update.tar` contains vendor firmware. For non-public
+> output, run the workflow in a **private** repository. Retention is set to 1 day.
+
 ### 2. Put the feature on the drive
 
 Connect the reader by USB and copy the server files so they live at:
