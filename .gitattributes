@@ -1,0 +1,4 @@
+# Scripts run on the device / Linux: force LF so they never get CRLF shebangs
+*.sh text eol=lf
+*.py text eol=lf
+* text=auto
