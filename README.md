@@ -29,21 +29,24 @@ docs/how-it-works.md boot flow, hook point, Nickel rescan details
 - The reader boots with SysV init; `/etc/rc.local` is the app launcher that
   starts Nickel. A single line is appended to it (after Nickel, backgrounded,
   non-fatal) that runs a stable entrypoint `/opt/custom/startup.sh`.
-- That entrypoint runs `/mnt/onboard/.custom/startup.sh` from the USB drive, so
-  you can change the feature later by editing files on the drive — **no
-  reflashing** after the first install.
+- That entrypoint is **self-contained**: it runs the baked server
+  `/opt/custom/bookserver.py`, so the feature works right after flashing with no
+  drive files. Optional overrides live on the USB drive:
+  `/mnt/onboard/.custom/startup.sh` replaces the behaviour, and
+  `/mnt/onboard/.custom/DISABLE` turns everything off (anti-lockout).
 - `bookserver.py` saves uploads into `/mnt/onboard` (the Kobo library) and asks
-  Nickel to import them via **NickelDBus** (`qndb -m pfmRescanBooksFull`), with
-  a hardware-FIFO fallback.
+  Nickel to import them via **NickelDBus**, waiting for the completion signal
+  (`qndb -t 60000 -s pfmDoneProcessing -m pfmRescanBooksFull`), with a
+  hardware-FIFO fallback. Logs go to tmpfs and are viewable at
+  `http://<reader-ip>:8080/log`.
 
 See [docs/how-it-works.md](docs/how-it-works.md) for details.
 
 ## Install
 
-There are two parts: a one-time rootfs patch (adds the boot hook) and the
-drive files (the actual feature, editable anytime).
+Patch the rootfs once; the feature is baked in, so flashing alone is enough.
 
-### 1. Patch the rootfs (one time)
+### Patch the rootfs
 
 You need your device's decompressed `rootfs.ext4` image. On Linux (or Windows
 with WSL) with `e2fsprogs` and `zstd` installed:
@@ -52,10 +55,12 @@ with WSL) with `e2fsprogs` and `zstd` installed:
 scripts/inject.sh /path/to/rootfs.ext4
 ```
 
-This adds `/opt/custom/startup.sh` and appends the hook to `/etc/rc.local`
-without mounting (uses `debugfs`, no root needed). Then recompress the image
-and rebuild your update package's checksum file. (Only the rootfs changes;
-kernel/U-Boot/TEE stay untouched, so their signatures remain valid.)
+This bakes `/opt/custom/bookserver.py` and `/opt/custom/startup.sh` and appends
+the hook to `/etc/rc.local` without mounting (uses `debugfs`, no root needed).
+Then recompress the image and rebuild your update package's checksum file.
+(Only the rootfs changes; kernel/U-Boot/TEE stay untouched, so their signatures
+remain valid.) Flash the repacked `update.tar` — the uploader now runs on the
+next boot with nothing to copy onto the drive.
 
 #### Build it in the cloud (optional)
 
@@ -70,16 +75,16 @@ it only lives on the ephemeral runner.
 > anyone, and the patched `update.tar` contains vendor firmware. For non-public
 > output, run the workflow in a **private** repository. Retention is set to 1 day.
 
-### 2. Put the feature on the drive
+### Optional: override on the drive
 
-Connect the reader by USB and copy the server files so they live at:
+The feature works without any drive files. For a reflash-free dev loop you can
+still drop an override on the USB drive — the loader prefers it over the baked
+server:
 
 ```
-<drive>/.custom/bookserver.py
-<drive>/.custom/startup.sh
+<drive>/.custom/startup.sh     # replaces the behaviour; edit + reboot
+<drive>/.custom/DISABLE         # (empty file) turns the hook off entirely
 ```
-
-Eject and reboot.
 
 ## Use
 
