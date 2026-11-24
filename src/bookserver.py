@@ -24,6 +24,9 @@ PORT = 8080
 # Kobo scans everything under /mnt/onboard; the root makes books appear directly.
 LIBRARY_DIR = Path("/mnt/onboard")
 NICKEL_FIFO = Path("/var/volatile/tmp/nickel-hardware-status")
+# On tmpfs, not on /mnt/onboard: a file held open there blocks USB "Connect".
+# Must match the redirect in startup.sh. Served read-only at GET /log.
+LOG_PATH = Path("/tmp/bookserver.log")
 
 
 def log(message: str) -> None:
@@ -177,8 +180,21 @@ class UploadHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             self._send_html(render_page())
+        elif self.path == "/log":
+            self._send_log()
         else:
             self._send_html(b"Not found", status=404)
+
+    def _send_log(self) -> None:
+        try:
+            body = LOG_PATH.read_bytes()
+        except OSError:
+            body = b"(no log yet)"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self) -> None:
         if self.path != "/upload":

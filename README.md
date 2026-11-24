@@ -88,7 +88,9 @@ Eject and reboot.
    Settings → Device information).
 3. Open `http://<reader-ip>:8080` on the phone, upload, done.
 
-Logs on the drive: `.custom/custom.log` and `.custom/bookserver.log`.
+Logs: open `http://<reader-ip>:8080/log` in the browser. (They are kept in
+`/tmp` on the device, not on `/mnt/onboard` — a file held open on the drive
+would block USB "Connect to PC".)
 
 ## Security note
 
