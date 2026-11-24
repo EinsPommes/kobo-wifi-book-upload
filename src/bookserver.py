@@ -85,13 +85,16 @@ def trigger_library_rescan() -> str:
     Prefers NickelDBus (clean, no USB screen); falls back to the hardware
     FIFO plug cycle. Never raises: a failed rescan must not drop the upload.
     """
+    # Trigger the rescan AND wait for Nickel's completion signal; firing the
+    # method without waiting often does not actually import (the call returns
+    # before Nickel processes it).
     try:
         result = subprocess.run(
-            ["qndb", "-m", "pfmRescanBooksFull"],
-            capture_output=True, timeout=30,
+            ["qndb", "-t", "60000", "-s", "pfmDoneProcessing", "-m", "pfmRescanBooksFull"],
+            capture_output=True, timeout=75,
         )
         if result.returncode == 0:
-            return "library rescan triggered"
+            return "library rescan done"
         log(f"qndb failed ({result.returncode}): {result.stderr.decode(errors='replace')}")
     except (FileNotFoundError, subprocess.SubprocessError) as error:
         log(f"qndb unavailable: {error}")
