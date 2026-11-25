@@ -16,8 +16,9 @@ LOG=/tmp/bookserver.log
 # Never keep the drive as our working directory either.
 cd / || exit 1
 
-# Idempotent: never start a second copy.
-if pgrep -f "bookserver.py" >/dev/null 2>&1; then
+# Idempotent: never start a second copy. Match the running interpreter, not any
+# process whose command line merely mentions the script (e.g. an editor).
+if pgrep -f "python3 .*bookserver.py" >/dev/null 2>&1; then
     exit 0
 fi
 

@@ -86,6 +86,56 @@ server:
 <drive>/.custom/DISABLE         # (empty file) turns the hook off entirely
 ```
 
+## Auto-update from GitHub
+
+The firmware can pull its own future updates from this repo's releases — no
+vendor server involved. The baked `/opt/custom/github-update.sh` runs at boot
+(after WiFi), checks `releases/latest`, and if the tag is newer than the baked
+`/opt/custom/VERSION` it downloads the release's `update.tar`, verifies it
+against the `update.tar.sha256` asset, and stages it at
+`/mnt/onboard/.kobo/update.tar`. It never flashes by itself — the reader shows
+its normal "install update?" prompt, so you always confirm.
+
+**Publishing a new firmware release** (so devices pick it up):
+
+1. Bump `VERSION` (e.g. `v2.2.0`) and rebuild `update.tar` (see Install).
+2. Create a GitHub release tagged with that exact version.
+3. Upload **both** `update.tar` and `update.tar.sha256` as assets
+   (`sha256sum update.tar | awk '{print $1"  update.tar"}' > update.tar.sha256`).
+
+Downgrade-protected (only strictly newer versions), checksum-verified, and the
+repo owner/name are set at the top of `src/github-update.sh`.
+
+## Blocking vendor updates
+
+A stock Kobo/Tolino firmware update would re-flash the rootfs and wipe this mod.
+To prevent that, `inject.sh` adds these lines to `/etc/hosts` so the device
+can't reach the firmware servers:
+
+```
+127.0.0.1 api.kobobooks.com
+127.0.0.1 api.ereaderupgrade.com
+127.0.0.1 api.ereaderupgrades.com
+```
+
+This does **not** affect the GitHub self-updater (different host). If a
+Kobo-branded store feature misbehaves, remove the `api.kobobooks.com` line and
+reflash. To re-enable vendor updates entirely, remove the block and reflash.
+
+## Custom boot splash (optional, device-specific)
+
+`scripts/make-splash.js` generates the power-on splash frames
+(`<product>-on-*.raw.gz` in `/etc/images/`). It is written for the Tolino Vision
+Color / Kobo Libra Colour (`monzaTolino`, **1264×1680**, 32bpp). For another
+model, decode one of its existing `-on-*.raw.gz` frames to find the resolution
+and orientation first, then adjust `W`/`H` and the target filenames.
+
+```sh
+npm i jimp@0.22
+node scripts/make-splash.js    # writes monzaTolino-on-0/1.raw.gz
+# then debugfs-write them into /etc/images/ in the rootfs and repack
+```
+
 ## Use
 
 1. Reader and phone on the same WiFi.

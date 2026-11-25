@@ -26,7 +26,11 @@ command -v debugfs >/dev/null || { echo "debugfs not found (install e2fsprogs)" 
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 server_src="$script_dir/../src/bookserver.py"
-[ -f "$server_src" ] || { echo "server source not found: $server_src" >&2; exit 1; }
+updater_src="$script_dir/../src/github-update.sh"
+version_src="$script_dir/../VERSION"
+for f in "$server_src" "$updater_src" "$version_src"; do
+    [ -f "$f" ] || { echo "source not found: $f" >&2; exit 1; }
+done
 
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
@@ -48,6 +52,9 @@ LOG=/tmp/custom-loader.log
 cd / || exit 0
 [ -f "$CUSTOM_DIR/DISABLE" ] && exit 0
 
+# Check GitHub for a newer firmware and stage it for the update prompt.
+[ -x /opt/custom/github-update.sh ] && /opt/custom/github-update.sh >/dev/null 2>&1 &
+
 {
     echo "=== custom loader: $(date) ==="
     if [ -f "$OVERRIDE" ]; then
@@ -55,7 +62,7 @@ cd / || exit 0
         /bin/sh "$OVERRIDE"
     else
         echo "running baked uploader: $BAKED_SERVER"
-        if ! pgrep -f "bookserver.py" >/dev/null 2>&1; then
+        if ! pgrep -f "python3 .*bookserver.py" >/dev/null 2>&1; then
             nohup python3 "$BAKED_SERVER" >/tmp/bookserver.log 2>&1 &
         fi
         (
@@ -95,16 +102,40 @@ else
     mv "$workdir/rc.local.tmp" "$workdir/rc.local.new"
 fi
 
+echo "Blocking vendor firmware update hosts in /etc/hosts ..."
+debugfs -R "cat /etc/hosts" "$IMG" 2>/dev/null > "$workdir/hosts.new"
+if ! grep -q "block vendor firmware updates" "$workdir/hosts.new"; then
+    cat >> "$workdir/hosts.new" <<'HOSTS'
+
+# --- block vendor firmware updates (custom mod) ---
+# Stops Kobo/Tolino stock firmware from overwriting this mod. Does not affect
+# the GitHub self-updater. Remove these lines (and reflash) to undo.
+127.0.0.1 api.kobobooks.com
+127.0.0.1 api.ereaderupgrade.com
+127.0.0.1 api.ereaderupgrades.com
+# --- end vendor update block ---
+HOSTS
+fi
+
 echo "Writing files into the image ..."
 cat > "$workdir/dbg.cmds" <<EOF
 mkdir /opt
 mkdir /opt/custom
+rm /etc/hosts
+write $workdir/hosts.new /etc/hosts
+sif /etc/hosts mode 0100644
 rm /opt/custom/startup.sh
 write $workdir/startup.sh /opt/custom/startup.sh
 sif /opt/custom/startup.sh mode 0100755
 rm /opt/custom/bookserver.py
 write $server_src /opt/custom/bookserver.py
 sif /opt/custom/bookserver.py mode 0100755
+rm /opt/custom/github-update.sh
+write $updater_src /opt/custom/github-update.sh
+sif /opt/custom/github-update.sh mode 0100755
+rm /opt/custom/VERSION
+write $version_src /opt/custom/VERSION
+sif /opt/custom/VERSION mode 0100644
 sif /opt mode 040755
 sif /opt/custom mode 040755
 rm /etc/rc.local
